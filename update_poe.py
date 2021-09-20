@@ -3,20 +3,19 @@ import argparse
 
 
 parser = argparse.ArgumentParser(
-    description="Switches the POE of a port of an Unifi Switch"
+    description="Get and set the POE of a port of an Unifi Switch"
 )
 parser.add_argument("url", help="The URL of your Unifi Controler")
 parser.add_argument("username", help="Your username")
 parser.add_argument("password", help="Your password")
 parser.add_argument("device_mac", help="The MAC Address of the switch")
 parser.add_argument("port", help="The port number", type=int)
-parser.add_argument("status", help="The status of the port", choices=["on", "off"])
+parser.add_argument(
+    "--set", help="Updates the status of the port", choices=["on", "off"]
+)
 
 args = parser.parse_args()
 session = requests.Session()
-
-# Parse the status
-poe_mode = "auto" if args.status == "on" else "off"
 
 # Cleanup and check base url
 base_url = args.url
@@ -76,26 +75,42 @@ if args.port not in ports:
     raise Exception(
         f"Unable to find port {args.port} on device {args.device_mac}, available ports : {list(ports.keys())}"
     )
-if not ports[args.port]["port_poe"]:
+
+port = ports[args.port]
+if not port["port_poe"]:
     raise Exception(
         f"Port {args.port} of device {args.device_mac} does not support POE"
     )
 
-# Send the overrive
-overrides = device["port_overrides"].copy()
-modified = False
-for port_overrides in overrides:
-    if port_overrides["port_idx"] == args.port:
-        port_overrides["poe_mode"] = poe_mode
-        modified = True
 
-if not modified:
-    raise Exception("Unable to generate overrides for port...")
+if args.set is None:
+    # Print the status
+    current_status = port["poe_mode"]
+    if current_status == "auto":
+        print("on")
+    elif current_status == "off":
+        print("off")
+    else:
+        raise Exception(f"Invalid status {current_status}")
+else:
+    # Update the status
+    new_status = "auto" if args.set == "on" else "off"
+    overrides = device["port_overrides"].copy()
+    modified = False
+    for port_overrides in overrides:
+        if port_overrides["port_idx"] == args.port:
+            port_overrides["poe_mode"] = new_status
+            modified = True
 
-check_response(
-    session.put(
-        base_url + f"api/s/default/rest/device/{device['device_id']}",
-        json={"port_overrides": overrides},
-    ),
-    "Unable to update overrides",
-)
+    if not modified:
+        raise Exception("Unable to generate overrides for port...")
+
+    check_response(
+        session.put(
+            base_url + f"api/s/default/rest/device/{device['device_id']}",
+            json={"port_overrides": overrides},
+        ),
+        "Unable to update overrides",
+    )
+
+    print(args.set)
